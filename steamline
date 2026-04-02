@@ -1,0 +1,94 @@
+import pandas as pd
+
+# ==============================
+# 1. LOAD DATA
+# ==============================
+data = pd.read_csv("complaints.csv")
+
+print("\n==============================")
+print("   AI GOVERNANCE SYSTEM")
+print("==============================")
+
+print("\n📊 Dataset Loaded Successfully!")
+print(f"Total Complaints: {len(data)}")
+
+# ==============================
+# 2. BASIC ANALYSIS
+# ==============================
+dept_counts = data['department'].value_counts()
+top_department = dept_counts.idxmax()
+
+location_counts = data['location'].value_counts()
+top_location = location_counts.idxmax()
+
+# ==============================
+# 3. SENTIMENT / SEVERITY ANALYSIS
+# ==============================
+negative_words = [
+    "no", "not", "bad", "damage", "dirty", "problem",
+    "delay", "unsafe", "shortage", "failure", "broken",
+    "leakage", "contaminated", "accident", "unhygienic"
+]
+
+def analyze_sentiment(text):
+    text = text.lower()
+    score = 0
+    for word in negative_words:
+        if word in text:
+            score += 1
+    return score
+
+data['severity_score'] = data['complaint_text'].apply(analyze_sentiment)
+
+high_severity = data[data['severity_score'] >= 2]
+
+# ==============================
+# 4. DECISION MAKING (AI LOGIC)
+# ==============================
+priority_data = data.groupby('department')['severity_score'].sum()
+priority_dept = priority_data.idxmax()
+priority_score = priority_data.max()
+
+location_priority = data.groupby('location')['severity_score'].sum()
+priority_location = location_priority.idxmax()
+
+# ==============================
+# 5. CLEAN OUTPUT
+# ==============================
+
+print("\n==============================")
+print("📌 KEY INSIGHTS")
+print("==============================")
+
+print(f"🔹 Most Complaints Department: {top_department}")
+print(f"🔹 Most Problematic Location: {top_location}")
+
+print("\n📊 Complaints by Department:")
+for dept, count in dept_counts.items():
+    print(f"   - {dept}: {count}")
+
+print("\n==============================")
+print("⚠️  SEVERITY ANALYSIS")
+print("==============================")
+
+print(f"High Severity Issues Found: {len(high_severity)}")
+
+print("\nTop Critical Complaints:")
+for i, row in high_severity.head(5).iterrows():
+    print(f"   - ({row['department']}) {row['complaint_text']}")
+
+print("\n==============================")
+print("🤖 AI POLICY RECOMMENDATION")
+print("==============================")
+
+print(f"🏛️ Priority Department: {priority_dept}")
+print(f"📍 Critical Location: {priority_location}")
+print(f"🔥 Severity Score: {priority_score}")
+
+print("\n💡 Suggested Action:")
+print(f"Immediate government intervention required in '{priority_location}'")
+print(f"focusing on '{priority_dept}' related issues.")
+
+print("\n==============================")
+print("✅ SYSTEM ANALYSIS COMPLETE")
+print("==============================")

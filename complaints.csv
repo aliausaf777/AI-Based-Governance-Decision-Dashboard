@@ -1,0 +1,415 @@
+import pandas as pd
+import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
+
+# ==============================
+# PAGE CONFIG (must be FIRST)
+# ==============================
+st.set_page_config(
+    page_title="AI Governance Dashboard",
+    page_icon="🏛️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ==============================
+# CUSTOM STYLING
+# ==============================
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@300;400;600&display=swap');
+
+    html, body, [class*="css"] { font-family: 'Rajdhani', sans-serif; }
+    .main { background-color: #080c14; }
+
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0d1b2a 0%, #0a1628 100%);
+        border-right: 1px solid #1a3a5c;
+    }
+    h1 {
+        font-family: 'Orbitron', monospace !important;
+        color: #00c6ff !important;
+        text-shadow: 0 0 20px rgba(0,198,255,0.4);
+        letter-spacing: 2px;
+        font-size: 1.8rem !important;
+    }
+    h2, h3 {
+        font-family: 'Orbitron', monospace !important;
+        color: #00c6ff !important;
+        font-size: 1rem !important;
+        letter-spacing: 1px;
+    }
+    [data-testid="metric-container"] {
+        background: linear-gradient(135deg, #0d1b2a 0%, #0a1628 100%);
+        border: 1px solid #1a3a5c;
+        border-radius: 12px;
+        padding: 16px !important;
+        box-shadow: 0 4px 20px rgba(0,198,255,0.05);
+        transition: box-shadow 0.3s ease;
+    }
+    [data-testid="metric-container"]:hover {
+        box-shadow: 0 4px 30px rgba(0,198,255,0.15);
+        border-color: #00c6ff;
+    }
+    [data-testid="stMetricLabel"] {
+        color: #7ba7c7 !important;
+        font-size: 0.85rem !important;
+        font-family: 'Rajdhani', sans-serif !important;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    [data-testid="stMetricValue"] {
+        color: #00c6ff !important;
+        font-family: 'Orbitron', monospace !important;
+        font-size: 1.8rem !important;
+    }
+    .stDataFrame { border: 1px solid #1a3a5c !important; border-radius: 10px; }
+    .stSuccess, .stWarning, .stInfo {
+        border-radius: 10px !important;
+        font-family: 'Rajdhani', sans-serif !important;
+        font-size: 1.05rem !important;
+    }
+    hr { border-color: #1a3a5c !important; margin: 1.5rem 0 !important; }
+    .stApp { background-color: #080c14; }
+
+    .top-banner {
+        background: linear-gradient(90deg, #00c6ff15, #0050ff10, #00c6ff15);
+        border: 1px solid #1a3a5c;
+        border-radius: 12px;
+        padding: 12px 24px;
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-family: 'Rajdhani', sans-serif;
+        color: #7ba7c7;
+        font-size: 0.9rem;
+        letter-spacing: 1px;
+    }
+    .status-dot {
+        width: 8px; height: 8px;
+        background: #00ff88; border-radius: 50%;
+        display: inline-block;
+        box-shadow: 0 0 8px #00ff88;
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* FIX: ensure explain-card renders HTML properly */
+    .explain-card {
+        background: linear-gradient(135deg, #0d1b2a 0%, #071020 100%);
+        border: 1px solid #1a3a5c;
+        border-left: 3px solid #00c6ff;
+        border-radius: 10px;
+        padding: 20px 24px;
+        font-family: 'Rajdhani', sans-serif;
+        color: #a8c8e8;
+        font-size: 1.05rem;
+        line-height: 1.7;
+    }
+    .explain-card p { margin-bottom: 12px; }
+    .explain-card b, .explain-card strong { color: #00c6ff !important; font-weight: 700; }
+
+    .tag-pill {
+        display: inline-block;
+        background: rgba(0,198,255,0.1);
+        border: 1px solid #00c6ff55;
+        color: #00c6ff;
+        border-radius: 20px;
+        padding: 3px 12px;
+        font-size: 0.82rem;
+        margin: 3px 4px 3px 0;
+        font-family: 'Rajdhani', sans-serif;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# ==============================
+# LOAD DATA
+# ==============================
+@st.cache_data
+def load_data():
+    return pd.read_csv("complaints.csv")
+
+try:
+    raw_data = load_data()
+except FileNotFoundError:
+    st.error("⚠️ `complaints.csv` not found. Please place it in the same directory as `app.py`.")
+    st.stop()
+
+# ==============================
+# AUTO-DETECT & NORMALIZE COLUMNS
+# ==============================
+raw_data.columns = raw_data.columns.str.strip()
+lower_map = {col: col.lower().replace(" ", "_") for col in raw_data.columns}
+
+def find_col(df, lower_lookup, candidates):
+    for orig, lower in lower_lookup.items():
+        for c in candidates:
+            if lower == c or lower.startswith(c):
+                return orig
+    return None
+
+dept_col     = find_col(raw_data, lower_map, ['department', 'dept', 'category', 'sector', 'type'])
+location_col = find_col(raw_data, lower_map, ['location', 'area', 'zone', 'region', 'city', 'district', 'place'])
+text_col     = find_col(raw_data, lower_map, ['complaint_text', 'complaint', 'description', 'text', 'issue', 'details', 'message'])
+
+missing = []
+if not dept_col:     missing.append("department")
+if not location_col: missing.append("location / area")
+if not text_col:     missing.append("complaint_text / description")
+
+if missing:
+    st.title("🏛️ AI Governance Decision Dashboard")
+    st.error(f"⚠️ Could not find required columns: **{', '.join(missing)}**")
+    st.markdown("**Columns detected in your CSV:**")
+    st.code("  |  ".join(raw_data.columns.tolist()))
+    st.info(
+        "Rename your CSV columns to match one of these:\n\n"
+        "- Department → `department`, `dept`, `category`, `sector`, `type`\n"
+        "- Location   → `location`, `area`, `zone`, `region`, `city`, `district`\n"
+        "- Text       → `complaint_text`, `complaint`, `description`, `text`, `issue`"
+    )
+    st.dataframe(raw_data.head(), use_container_width=True)
+    st.stop()
+
+data = raw_data.rename(columns={
+    dept_col:     'department',
+    location_col: 'location',
+    text_col:     'complaint_text'
+})
+
+# ==============================
+# SIDEBAR FILTERS
+# ==============================
+st.sidebar.markdown("## 🔍 Filter Controls")
+st.sidebar.markdown("---")
+
+selected_department = st.sidebar.multiselect(
+    "🏢 Department",
+    options=sorted(data['department'].dropna().unique()),
+    default=sorted(data['department'].dropna().unique())
+)
+selected_location = st.sidebar.multiselect(
+    "📍 Location",
+    options=sorted(data['location'].dropna().unique()),
+    default=sorted(data['location'].dropna().unique())
+)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "<div style='color:#4a6f8a;font-size:0.8rem;font-family:Rajdhani,sans-serif;'>"
+    "AI Governance System v2.0<br>Powered by rule-based inference + NLP"
+    "</div>",
+    unsafe_allow_html=True
+)
+
+filtered_data = data[
+    (data['department'].isin(selected_department)) &
+    (data['location'].isin(selected_location))
+].copy()
+
+# ==============================
+# ENHANCED SEVERITY SCORING (NLP)
+# ==============================
+# Weighted keywords: critical=3, high=2, medium=1
+weighted_keywords = {
+    # Critical weight (3)
+    "accident": 3, "contaminated": 3, "unsafe": 3, "abuse": 3,
+    "fraud": 3, "corrupt": 3, "illegal": 3, "negligence": 3,
+    "collapse": 3, "dead": 3, "death": 3, "fire": 3, "flood": 3,
+    # High weight (2)
+    "broken": 2, "damage": 2, "failure": 2, "leakage": 2,
+    "shortage": 2, "not working": 2, "no water": 2, "no power": 2,
+    "unhygienic": 2, "delay": 2, "blocked": 2, "overflow": 2,
+    # Medium weight (1)
+    "no": 1, "not": 1, "bad": 1, "dirty": 1, "problem": 1,
+    "poor": 1, "slow": 1, "missing": 1, "broken": 1, "old": 1,
+    "insufficient": 1, "lack": 1, "wrong": 1, "complaint": 1,
+}
+
+def analyze_severity(text):
+    text = str(text).lower()
+    score = 0
+    for keyword, weight in weighted_keywords.items():
+        if keyword in text:
+            score += weight
+    return min(score, 10)  # cap at 10
+
+def severity_label(score):
+    if score >= 5:   return "🔴 Critical"
+    elif score >= 3: return "🟠 High"
+    elif score >= 1: return "🟡 Medium"
+    return "⚪ Low"
+
+filtered_data['severity_score'] = filtered_data['complaint_text'].apply(analyze_severity)
+filtered_data['severity_label'] = filtered_data['severity_score'].apply(severity_label)
+
+# ==============================
+# TITLE + BANNER
+# ==============================
+st.title("🏛️ AI Governance Decision Dashboard")
+st.markdown(
+    "<div class='top-banner'>"
+    "<span class='status-dot'></span>"
+    "SYSTEM ONLINE &nbsp;|&nbsp; Real-time complaint analysis &nbsp;|&nbsp; "
+    f"Processing <b style='color:#00c6ff'>{len(filtered_data)}</b> records"
+    "</div>",
+    unsafe_allow_html=True
+)
+
+# ==============================
+# METRICS
+# ==============================
+mc1, mc2, mc3, mc4 = st.columns(4)
+mc1.metric("📋 Total Complaints", len(filtered_data))
+mc2.metric("🏢 Departments", filtered_data['department'].nunique())
+mc3.metric("📍 Locations", filtered_data['location'].nunique())
+mc4.metric("🔴 High Severity", len(filtered_data[filtered_data['severity_score'] >= 3]))
+
+st.markdown("---")
+
+# ==============================
+# CHARTS
+# ==============================
+cc1, cc2 = st.columns(2)
+
+with cc1:
+    st.subheader("📊 Complaints by Department")
+    dept_counts = filtered_data['department'].value_counts().reset_index()
+    dept_counts.columns = ['Department', 'Count']
+    fig1 = px.bar(dept_counts, x='Count', y='Department', orientation='h',
+                  color='Count', color_continuous_scale=['#0050ff', '#00c6ff'],
+                  template='plotly_dark')
+    fig1.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(13,27,42,0.8)',
+        font_family='Rajdhani', coloraxis_showscale=False,
+        margin=dict(l=0, r=0, t=10, b=0), height=320
+    )
+    fig1.update_traces(marker_line_width=0)
+    st.plotly_chart(fig1, use_container_width=True)
+
+with cc2:
+    st.subheader("📍 Complaints by Location")
+    loc_counts = filtered_data['location'].value_counts().reset_index()
+    loc_counts.columns = ['Location', 'Count']
+    fig2 = px.pie(loc_counts, names='Location', values='Count',
+                  color_discrete_sequence=px.colors.sequential.Blues_r,
+                  template='plotly_dark', hole=0.45)
+    fig2.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(13,27,42,0.8)',
+        font_family='Rajdhani', margin=dict(l=0, r=0, t=10, b=0), height=320,
+        legend=dict(font=dict(color='#7ba7c7'))
+    )
+    st.plotly_chart(fig2, use_container_width=True)
+
+# ==============================
+# SEVERITY HEATMAP
+# ==============================
+st.subheader("🌡️ Severity Heatmap — Department × Location")
+pivot = filtered_data.groupby(['department', 'location'])['severity_score'].sum().unstack(fill_value=0)
+if not pivot.empty:
+    fig3 = go.Figure(data=go.Heatmap(
+        z=pivot.values, x=pivot.columns.tolist(), y=pivot.index.tolist(),
+        colorscale=[[0, '#0d1b2a'], [0.5, '#0050ff'], [1, '#00c6ff']],
+        showscale=True, hoverongaps=False
+    ))
+    fig3.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(13,27,42,0.8)',
+        font=dict(family='Rajdhani', color='#7ba7c7'),
+        margin=dict(l=0, r=0, t=10, b=0), height=300
+    )
+    st.plotly_chart(fig3, use_container_width=True)
+
+st.markdown("---")
+
+# ==============================
+# HIGH SEVERITY TABLE
+# ==============================
+st.subheader("⚠️ High Severity Complaints")
+high_sev = filtered_data[filtered_data['severity_score'] >= 3][
+    ['department', 'location', 'complaint_text', 'severity_label', 'severity_score']
+].sort_values('severity_score', ascending=False)
+
+if high_sev.empty:
+    st.info("No high severity complaints found with current filters.")
+else:
+    st.dataframe(
+        high_sev.rename(columns={
+            'department': 'Department', 'location': 'Location',
+            'complaint_text': 'Complaint', 'severity_label': 'Severity', 'severity_score': 'Score'
+        }),
+        use_container_width=True, hide_index=True
+    )
+
+st.markdown("---")
+
+# ==============================
+# AI DECISION ENGINE
+# ==============================
+priority_data_dept = filtered_data.groupby('department')['severity_score'].sum()
+priority_dept       = priority_data_dept.idxmax() if not priority_data_dept.empty else "N/A"
+priority_score_dept = int(priority_data_dept.max()) if not priority_data_dept.empty else 0
+
+priority_data_loc  = filtered_data.groupby('location')['severity_score'].sum()
+priority_location  = priority_data_loc.idxmax() if not priority_data_loc.empty else "N/A"
+priority_score_loc = int(priority_data_loc.max()) if not priority_data_loc.empty else 0
+
+total_critical = len(filtered_data[filtered_data['severity_score'] >= 5])
+total_high     = len(filtered_data[filtered_data['severity_score'] >= 3])
+
+st.subheader("🤖 AI Decision Engine")
+ai1, ai2, ai3 = st.columns(3)
+with ai1:
+    st.success(f"🏢 **Priority Department**\n\n**{priority_dept}**\n\nSeverity Score: {priority_score_dept}")
+with ai2:
+    st.warning(f"📍 **Critical Location**\n\n**{priority_location}**\n\nSeverity Score: {priority_score_loc}")
+with ai3:
+    st.info(f"💡 **Recommended Action**\n\nAllocate resources & deploy intervention team to **{priority_location}** immediately.")
+
+st.markdown("---")
+
+# ==============================
+# AI EXPLANATION PANEL — FIXED HTML RENDERING
+# ==============================
+st.subheader("🧠 AI Reasoning & Explanation")
+
+if priority_dept != "N/A" and priority_location != "N/A":
+    # BUILD HTML string cleanly — no f-string nesting issues
+    explanation_html = (
+        "<div class='explain-card'>"
+
+        f"<p>The AI governance system analyzed <b>{len(filtered_data)}</b> complaints using "
+        f"multi-layered severity scoring and pattern detection across "
+        f"<b>{filtered_data['department'].nunique()}</b> departments and "
+        f"<b>{filtered_data['location'].nunique()}</b> locations.</p>"
+
+        f"<p>📌 The <b>{priority_dept}</b> department carries the highest cumulative severity score "
+        f"of <b>{priority_score_dept}</b>, signaling a concentration of critical unresolved issues "
+        f"requiring immediate administrative attention.</p>"
+
+        f"<p>🗺️ The location <b>{priority_location}</b> (score: <b>{priority_score_loc}</b>) shows "
+        f"the highest density of severe complaints — suggesting systemic infrastructure or "
+        f"governance gaps in that region.</p>"
+
+        f"<p>📊 Severity breakdown: <b>{total_critical}</b> Critical issues and "
+        f"<b>{total_high}</b> High/Critical issues detected across all filtered records.</p>"
+
+        f"<p><b>Decision rationale:</b> Prioritize resource allocation and field intervention "
+        f"at <b>{priority_location}</b>, beginning with the <b>{priority_dept}</b> department. "
+        f"Immediate policy action is recommended to address systemic failures.</p>"
+
+        "<br/><b>Methods applied:</b><br/>"
+        "<span class='tag-pill'>📊 Data Aggregation</span>"
+        "<span class='tag-pill'>🔤 Weighted Keyword NLP</span>"
+        "<span class='tag-pill'>📐 Rule-Based Inference</span>"
+        "<span class='tag-pill'>🌡️ Severity Heatmap</span>"
+        "<span class='tag-pill'>📍 Geo-Pattern Detection</span>"
+        "<span class='tag-pill'>⚖️ Policy Recommendation</span>"
+        "</div>"
+    )
+
+    st.markdown(explanation_html, unsafe_allow_html=True)
+else:
+    st.warning("No data available for AI analysis. Please check your filters or data source.")
